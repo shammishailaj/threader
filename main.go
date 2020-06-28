@@ -23,6 +23,7 @@ type Args struct {
 	Runs         int
 }
 
+var shell string
 var args Args
 var loggerOut = log.New(os.Stdout, "", 0)
 
@@ -31,6 +32,15 @@ func init() {
 }
 
 func main() {
+	// detect shell
+	executer, exists := os.LookupEnv("SHELL")
+	if !exists {
+		// Print the value of the environment variable
+		loggerOut.Println("No SHELL env given, exiting")
+		os.Exit(1)
+	}
+	shell = executer
+
 	// first we gonne parse the args
 	parseArgs()
 
@@ -40,10 +50,7 @@ func main() {
 		verboseOut("You set '" + strconv.Itoa(args.ThreadAmount) + "' threads but only have '" + strconv.Itoa(cpuAmount) + "' cores. It`s your choice...")
 	}
 
-	// check what type of input we get by following priority
-	// 1. a input-command string to be executed, the return
-	//    used as index
-	// 2. arg -input as string input
+	// prepare the input map
 	var input map[int]string
 	// is there a command given that provides input?
 	if args.Runs != -1 {
@@ -158,8 +165,16 @@ func createSmartMinion(id int, input []string, intercom chan string) {
 }
 
 func prepareExecString(input string, threadID int, inputID int) string {
-	args.Run = strings.Replace(args.Run, "\"", "\\\"", -1)
-	commandString := "INPUTSTR=\"" + input + "\";THREADID=\"" + strconv.Itoa(threadID) + "\";INPUTID=\"" + strconv.Itoa(inputID) + "\";" + args.Run + ";"
+	// set the vars as env vars appended with the threadid
+	threadIDstr := strconv.Itoa(threadID)
+	os.Setenv("TIS"+threadIDstr, input)
+	os.Setenv("TID"+threadIDstr, strconv.Itoa(inputID))
+	os.Setenv("TTID"+threadIDstr, threadIDstr)
+
+	// build the execution string buy normalising the varnames to standard varnames for erasier command handling
+	commandString := "INPUTSTR=$TIS" + threadIDstr + ";THREADID=$TTID" + threadIDstr + ";INPUTID=$TID" + threadIDstr + ";" + args.Run + ";"
+	verboseOut(commandString)
+
 	return commandString
 }
 
@@ -249,7 +264,7 @@ func splitInput() map[int]string {
 }
 
 func custExec(cmd string) (string, error) {
-	output, err := exec.Command("/bin/bash", "-c", cmd).Output()
+	output, err := exec.Command(shell, "-c", cmd).Output()
 	if nil != err {
 		return "", errors.New("Error executin command")
 	}
